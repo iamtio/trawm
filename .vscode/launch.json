@@ -1,0 +1,26 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "preLaunchTask": "${defaultBuildTask}",
+            "type": "probe-rs-debug",
+            "request": "launch",
+            "name": "probe-rs",
+            "cwd": "${workspaceFolder}",
+            // "connectUnderReset": true,
+            "chip": "RP2040",
+            "flashingConfig": {
+                "flashingEnabled": true,
+                // "haltAfterReset": true
+            },
+            "consoleLogLevel": "Console",
+            "coreConfigs": [
+                {
+                    "rttEnabled": true,
+                    "coreIndex": 0,
+                    "programBinary": "${workspaceFolder}/target/thumbv6m-none-eabi/debug/${workspaceFolderBasename}"
+                }
+            ]
+        }
+    ]
+}
