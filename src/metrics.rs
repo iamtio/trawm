@@ -45,9 +45,9 @@ impl fmt::Display for AirMetrics {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Humidity: {0:.2} %\n\
-            Temperature: {1:.2} °C\n\
-            Pressure: {2:.2} hPa\n\
+            "Humidity: {0:.1} %\n\
+            Temperature: {1:.1} C\n\
+            Pressure: {2:.1} hPa\n\
             CO2: {3} ppm\n\
             VOC: {4} ppb\n\
             Radon 1day: {5} Long: {6}",

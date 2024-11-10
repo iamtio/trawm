@@ -162,6 +162,7 @@ impl BLE {
             defmt::info!("Found airthings. {:?}", found_addr);
             let Some(target) = found_addr else {
                 defmt::error!("Couldn't connect. No address specified");
+                error = Some(BLEError::ConnectionProblem);
                 return;
             };
             let conn = central
@@ -213,6 +214,7 @@ impl BLE {
         select(trouble_runner.run(), async {
             let Ok(_) = with_timeout(operation_timeout, scan_and_fetch).await else {
                 defmt::error!("Scan timed out");
+                // TODO: return as TimeoutError
                 return;
             };
         })

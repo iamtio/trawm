@@ -78,7 +78,8 @@ impl<'a> Badger2040wIO<'a> {
             spi::Config::default(),
         );
         let spi_dev = ExclusiveDevice::new_no_delay(spi, cs);
-
+        let mut rtc = PCF85063::new(i2c);
+        rtc.clear_alarm_flag().await.unwrap();
         Badger2040wIO {
             power: Output::new(p.PIN_10, Level::Low),
             led: Output::new(p.PIN_22, Level::Low),
@@ -88,7 +89,7 @@ impl<'a> Badger2040wIO<'a> {
             btn_b: Input::new(p.PIN_13, Pull::Down),
             btn_c: Input::new(p.PIN_14, Pull::Down),
             display: Uc8151::new(spi_dev, dc, busy, reset, Delay),
-            rtc: PCF85063::new(i2c),
+            rtc,
         }
     }
     pub async fn wake_up_in(
