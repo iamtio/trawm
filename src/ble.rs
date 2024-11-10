@@ -234,6 +234,7 @@ impl BLE {
 }
 
 fn fix_adv_payload<const N: usize>(payload: &[u8], result: &mut Vec<u8, N>) {
+    // Workaround for bug https://github.com/embassy-rs/trouble/issues/137
     if payload.is_empty() {
         return;
     }
