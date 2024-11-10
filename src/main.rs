@@ -1,8 +1,6 @@
 #![no_std]
 #![no_main]
 
-use trawm::badger::*;
-use trawm::ble::*;
 use core::fmt::Write;
 use core::time;
 use defmt;
@@ -21,6 +19,8 @@ use embedded_text::{
     TextBox,
 };
 use heapless::String;
+use trawm::badger::*;
+use trawm::ble::*;
 use uc8151::LUT;
 use uc8151::WIDTH;
 use {defmt_rtt as _, panic_probe as _};
@@ -85,21 +85,14 @@ async fn main(spawner: Spawner) {
     badger.led.set_high();
     badger.display.reset().await;
     // Initialise display. Using the default LUT speed setting
-    let _ = badger.display.setup(LUT::Internal).await;
-    let metrics = BLE {
+    badger.display.setup(LUT::Internal).await.unwrap();
+    let ble = BLE {
         PIN_25,
         PIO0,
         PIN_24,
         DMA_CH0,
         PIN_29,
         PIN_23,
-    }
-    .get_metrics(&spawner, Duration::from_secs(10))
-    .await;
-    defmt::info!("Got metrics: {:?}", metrics);
-    let Some(metrics) = metrics else {
-        badger.power.set_low();
-        return;
     };
     // Note we're setting the Text color to `Off`. The driver is set up to treat Off as Black so that BMPs work as expected.
     let character_style = MonoTextStyle::new(&FONT_9X18_BOLD, BinaryColor::Off);
@@ -115,23 +108,32 @@ async fn main(spawner: Spawner) {
         .into_styled(PrimitiveStyle::with_fill(BinaryColor::On))
         .draw(&mut badger.display)
         .unwrap();
-    // Create the text box and apply styling options.
-    let mut metrics_text: String<256> = String::new();
-    write!(metrics_text, "{}", metrics).unwrap();
-    let text_box =
-        TextBox::with_textbox_style(&metrics_text, bounds, character_style, textbox_style);
+
+    let mut awake_in = time::Duration::from_secs(90);
+    let mut text: String<256> = String::new();
+    // Try to get air metrics with 10 sec timout
+    match ble.get_metrics(&spawner, Duration::from_secs(10)).await {
+        Ok(metrics) => {
+            write!(text, "{}", metrics).unwrap();
+        }
+        Err(e) => {
+            write!(text, "{:?}", e).unwrap();
+            awake_in = time::Duration::from_secs(10);
+        }
+    };
+
+    let text_box = TextBox::with_textbox_style(&text, bounds, character_style, textbox_style);
 
     // Draw the text box.
     text_box.draw(&mut badger.display).unwrap();
 
     let _ = badger.display.update().await;
 
-    badger
-        .wake_up_in(time::Duration::from_secs(10))
-        .await
-        .unwrap();
+    defmt::info!("Going to deep sleep for {:?}", awake_in);
+    badger.wake_up_in(awake_in).await.unwrap();
+    badger.power.set_low();
     loop {
-        badger.power.set_low();
+        // Will only run on USB power.
         log::info!("loop");
         Timer::after(Duration::from_secs(1)).await;
         badger.led.toggle();

@@ -17,7 +17,7 @@ use trouble_host::prelude::{ConnectConfig, Uuid};
 use trouble_host::scan::ScanConfig;
 use trouble_host::{Address, HostResources, PacketQos};
 
-use crate::metrics::AirMetrics;
+use crate::metrics::{AirMetrics, ParseMetricsError};
 
 type BleResources<C> = HostResources<C, 1, 3, 27>;
 
@@ -41,6 +41,15 @@ const CHAR_UUID: Uuid = Uuid::new_long([
     0xba, 0x5c, 0xf7, 0x93, 0x3b, 0x12, 0xd3, 0x89, 0xe4, 0x11, 0xe7, 0xad, 0x68, 0x2a, 0x2e, 0xb4,
 ]);
 
+#[derive(Debug, Clone, Copy)]
+pub enum BLEError {
+    ConnectionProblem,
+    ServiceNotFound,
+    CharacteristicsNotFound,
+    ParseMetricsProblem(ParseMetricsError),
+    TimedOut,
+}
+
 #[allow(non_snake_case)]
 pub struct BLE {
     pub PIN_25: PIN_25,
@@ -55,7 +64,7 @@ impl BLE {
         self: Self,
         spawner: &Spawner,
         operation_timeout: EmbassyDuration,
-    ) -> Option<AirMetrics> {
+    ) -> Result<AirMetrics, BLEError> {
         // Loading wireless firmware
         let fw = include_bytes!("../cyw43-firmware/43439A0.bin");
         let clm = include_bytes!("../cyw43-firmware/43439A0_clm.bin");
@@ -74,7 +83,7 @@ impl BLE {
             self.PIN_29,
             self.DMA_CH0,
         );
-
+        // BLE
         static STATE: StaticCell<cyw43::State> = StaticCell::new();
         let state = STATE.init(cyw43::State::new());
         let (_net_device, bt_device, mut control, runner) =
@@ -87,8 +96,10 @@ impl BLE {
         let (stack, _, mut central, mut trouble_runner) =
             trouble_host::new(controller, &mut resources).build();
 
+        // Results
         let mut found_addr: Option<Address> = None;
         let mut raw_metrics = [0; 256];
+        let mut error: Option<BLEError> = None;
         let scan_and_fetch = async {
             defmt::info!("Scan start");
 
@@ -147,7 +158,7 @@ impl BLE {
                     }
                 }
             }
-            // Fetch data
+            // Fetch metrics
             defmt::info!("Found airthings. {:?}", found_addr);
             let Some(target) = found_addr else {
                 defmt::error!("Couldn't connect. No address specified");
@@ -161,22 +172,37 @@ impl BLE {
                         ..Default::default()
                     },
                 })
-                .await
-                .unwrap();
+                .await;
+            let Ok(conn) = conn else {
+                error = Some(BLEError::ConnectionProblem);
+                return;
+            };
             defmt::info!("Connected, creating gatt client");
 
-            let client = GattClient::<_, 10, 27>::new(stack, &conn).await.unwrap();
+            let Ok(client) = GattClient::<_, 10, 27>::new(stack, &conn).await else {
+                error = Some(BLEError::ConnectionProblem);
+                return;
+            };
 
             let _ = select(client.task(), async {
                 defmt::info!("Looking for Airthings metrics service");
-                let services = client.services_by_uuid(&SERVICE_UUID).await.unwrap();
-                let service = services.first().unwrap().clone();
+                let Ok(services) = client.services_by_uuid(&SERVICE_UUID).await else {
+                    error = Some(BLEError::ServiceNotFound);
+                    return;
+                };
+                let Some(service) = services.first() else {
+                    error = Some(BLEError::ServiceNotFound);
+                    return;
+                };
 
                 defmt::info!("Looking for Airthings metrics characteristics");
                 let characteristic = client
-                    .characteristic_by_uuid(&service, &CHAR_UUID)
-                    .await
-                    .unwrap();
+                    .characteristic_by_uuid(&service.clone(), &CHAR_UUID)
+                    .await;
+                let Ok(characteristic) = characteristic else {
+                    error = Some(BLEError::CharacteristicsNotFound);
+                    return;
+                };
                 let _ = client
                     .read_characteristic(&characteristic, &mut raw_metrics[..])
                     .await;
@@ -191,9 +217,14 @@ impl BLE {
             };
         })
         .await;
-        match AirMetrics::from_bytes(&raw_metrics) {
-            Ok(result) => Some(result),
-            Err(_) => None,
+        match error {
+            Some(e) => {
+                return Err(e);
+            }
+            None => match AirMetrics::from_bytes(&raw_metrics) {
+                Ok(result) => Ok(result),
+                Err(err) => Err(BLEError::ParseMetricsProblem(err)),
+            },
         }
     }
 }
