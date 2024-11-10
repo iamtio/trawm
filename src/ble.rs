@@ -99,7 +99,7 @@ impl BLE {
         // Results
         let mut found_addr: Option<Address> = None;
         let mut raw_metrics = [0; 256];
-        let mut error: Option<BLEError> = None;
+        let mut scan_and_fetch_error: Option<BLEError> = None;
         let scan_and_fetch = async {
             defmt::info!("Scan start");
 
@@ -162,7 +162,7 @@ impl BLE {
             defmt::info!("Found airthings. {:?}", found_addr);
             let Some(target) = found_addr else {
                 defmt::error!("Couldn't connect. No address specified");
-                error = Some(BLEError::ConnectionProblem);
+                scan_and_fetch_error = Some(BLEError::ConnectionProblem);
                 return;
             };
             let conn = central
@@ -175,24 +175,24 @@ impl BLE {
                 })
                 .await;
             let Ok(conn) = conn else {
-                error = Some(BLEError::ConnectionProblem);
+                scan_and_fetch_error = Some(BLEError::ConnectionProblem);
                 return;
             };
             defmt::info!("Connected, creating gatt client");
 
             let Ok(client) = GattClient::<_, 10, 27>::new(stack, &conn).await else {
-                error = Some(BLEError::ConnectionProblem);
+                scan_and_fetch_error = Some(BLEError::ConnectionProblem);
                 return;
             };
 
             let _ = select(client.task(), async {
                 defmt::info!("Looking for Airthings metrics service");
                 let Ok(services) = client.services_by_uuid(&SERVICE_UUID).await else {
-                    error = Some(BLEError::ServiceNotFound);
+                    scan_and_fetch_error = Some(BLEError::ServiceNotFound);
                     return;
                 };
                 let Some(service) = services.first() else {
-                    error = Some(BLEError::ServiceNotFound);
+                    scan_and_fetch_error = Some(BLEError::ServiceNotFound);
                     return;
                 };
 
@@ -201,7 +201,7 @@ impl BLE {
                     .characteristic_by_uuid(&service.clone(), &CHAR_UUID)
                     .await;
                 let Ok(characteristic) = characteristic else {
-                    error = Some(BLEError::CharacteristicsNotFound);
+                    scan_and_fetch_error = Some(BLEError::CharacteristicsNotFound);
                     return;
                 };
                 let _ = client
@@ -211,21 +211,23 @@ impl BLE {
             })
             .await;
         };
+        let mut timeout_error: Option<BLEError> = None;
         select(trouble_runner.run(), async {
             let Ok(_) = with_timeout(operation_timeout, scan_and_fetch).await else {
                 defmt::error!("Scan timed out");
-                // TODO: return as TimeoutError
+                timeout_error = Some(BLEError::TimedOut);
                 return;
             };
         })
         .await;
-        match error {
-            Some(e) => {
-                return Err(e);
-            }
-            None => match AirMetrics::from_bytes(&raw_metrics) {
-                Ok(result) => Ok(result),
-                Err(err) => Err(BLEError::ParseMetricsProblem(err)),
+        match scan_and_fetch_error {
+            Some(e) => Err(e),
+            None => match timeout_error {
+                Some(e) => Err(e),
+                None => match AirMetrics::from_bytes(&raw_metrics) {
+                    Ok(result) => Ok(result),
+                    Err(err) => Err(BLEError::ParseMetricsProblem(err)),
+                },
             },
         }
     }

@@ -117,7 +117,7 @@ async fn main(spawner: Spawner) {
             write!(text, "{}", metrics).unwrap();
         }
         Err(e) => {
-            write!(text, "{:?}", e).unwrap();
+            write!(text, "An error occurred:\n{:?}", e).unwrap();
             awake_in = time::Duration::from_secs(10);
         }
     };
