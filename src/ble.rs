@@ -241,6 +241,9 @@ fn fix_adv_payload<const N: usize>(payload: &[u8], result: &mut Vec<u8, N>) {
     let mut pos: usize = 0;
     loop {
         let chunk_len = payload[pos] as usize;
+        if chunk_len == 0 {
+            return;
+        }
         result.push(payload[pos]).unwrap();
         pos += 1;
         let bytes_left = payload[pos..].len();
