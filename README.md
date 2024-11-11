@@ -26,3 +26,11 @@ sequenceDiagram
 ```
 # How it looks
 ![trawm](https://github.com/user-attachments/assets/9436c888-21c7-4770-ac02-c87219a7a54f)
+
+# How to flash the Badger 2040 W
+- Clone this repo
+- Install **rust** + **cargo** using **rustup**: <https://rustup.rs>
+- Install **elf2uf2-rs**: `cargo install elf2uf2-rs`
+- Connect Badger 2040 W
+- Switch it to the boot-loader mode (Hold **reset** + **bootsel** buttons together, the **RPI-RP2** virtual disc should appear)
+- Run `cargo build --release && cargo uf2-deploy` in project dir
